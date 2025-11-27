@@ -1,88 +1,65 @@
 #!/bin/bash
 
-# ----------------------------
-# Setup Genérico de VPS
-# ----------------------------
-
 echo "🚀 Iniciando setup genérico da VPS..."
 
-# ----------------------------
-# Perguntas iniciais
-# ----------------------------
-read -p "Nome do usuário da VPS (padrão: ubuntu): " USER_NAME
-USER_NAME=${USER_NAME:-ubuntu}
-
-read -p "Nome do projeto (padrão: projeto): " PROJECT_NAME
-PROJECT_NAME=${PROJECT_NAME:-projeto}
-
-PROJECT_DIR="$HOME/$PROJECT_NAME"
-
-echo "📂 Diretório do projeto definido como: $PROJECT_DIR"
+USER_NAME="ubuntu"
+ALIAS_FILE="/etc/profile.d/custom_aliases.sh"
+SCRIPTS_DIR="/home/ubuntu/sh_scripts"
 
 # ----------------------------
 # Atualização do sistema
 # ----------------------------
 echo "🔄 Atualizando sistema..."
-sudo apt update && sudo apt upgrade -y
+apt update && apt upgrade -y
 
 # ----------------------------
-# Instalação de pacotes essenciais
+# Pacotes Essenciais
 # ----------------------------
-ESSENTIALS=(git zsh curl htop unzip)
+ESSENTIALS=(git zsh curl htop unzip nginx)
 for pkg in "${ESSENTIALS[@]}"; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         echo "📦 Instalando $pkg..."
-        sudo apt install -y $pkg
+        apt install -y $pkg
     else
-        echo "✅ $pkg já instalado, pulando."
+        echo "✅ $pkg já instalado."
     fi
 done
 
 # ----------------------------
-# Instalação Oh-My-Zsh
+# Instalar Fish Shell
 # ----------------------------
-if [ ! -d "$HOME/.oh-my-zsh" ]; then
-    echo "💎 Instalando Oh-My-Zsh..."
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+if ! command -v fish >/dev/null 2>&1; then
+    echo "🐟 Instalando Fish Shell..."
+    apt install -y fish
 else
-    echo "✅ Oh-My-Zsh já instalado, pulando."
+    echo "✅ Fish já instalado."
 fi
 
 # ----------------------------
-# Docker & Docker Compose
+# Docker
 # ----------------------------
 if ! command -v docker >/dev/null 2>&1; then
     echo "🐳 Instalando Docker..."
-    curl -fsSL https://get.docker.com | sudo sh
-    sudo usermod -aG docker $USER_NAME
+    curl -fsSL https://get.docker.com | sh
+    usermod -aG docker $USER_NAME
 else
-    echo "✅ Docker já instalado, pulando."
+    echo "✅ Docker já instalado."
 fi
 
 if ! command -v docker-compose >/dev/null 2>&1; then
     echo "🛠 Instalando Docker Compose plugin..."
-    sudo apt install docker-compose-plugin -y
+    apt install docker-compose-plugin -y
 else
-    echo "✅ Docker Compose já instalado, pulando."
+    echo "✅ Docker Compose já instalado."
 fi
 
 # ----------------------------
-# Criar estrutura de pastas
+# Criar aliases globais
 # ----------------------------
-mkdir -p "$PROJECT_DIR"
-mkdir -p "$HOME/scripts"
-chmod +x "$HOME/scripts"
-echo "📂 Estrutura de pastas criada: $PROJECT_DIR e ~/scripts"
+echo "⚙️ Configurando aliases globais..."
 
-# ----------------------------
-# Criar arquivo de aliases
-# ----------------------------
-ALIAS_FILE="$HOME/.aliases_$PROJECT_NAME"
-
-cat > "$ALIAS_FILE" <<EOF
-# Aliases principais
-alias project="cd $PROJECT_DIR"
-alias logs="docker-compose logs -f"
+cat << 'EOF' > $ALIAS_FILE
+alias logs="docker compose logs -f"
 alias db="docker exec -it postgres psql -U postgres"
 alias ll="ls -lah"
 alias gs="git status"
@@ -92,53 +69,59 @@ alias dcu="docker compose up -d"
 alias dcd="docker compose down"
 alias dcl="docker compose logs -f"
 alias cdu="cd /home/ubuntu"
-alias cdp="cd /var/www"
 alias rebuild="docker compose down && docker compose build && docker compose up -d"
 
-# Deploy
-alias deploy="$PROJECT_DIR/deploy.sh -y"
-alias helpsetup="cat $ALIAS_FILE"
+# Comando de ajuda do setup
+helpsetup() {
+    echo ""
+    echo "========== 🛠 AJUDA DO SETUP DA VPS =========="
+    echo ""
+    echo "Comandos disponíveis:"
+    echo "  ll        → ls -lah"
+    echo "  gs        → git status"
+    echo "  gp        → git pull"
+    echo "  dcu       → docker compose up -d"
+    echo "  dcd       → docker compose down"
+    echo "  dcl       → docker compose logs -f"
+    echo "  logs      → docker compose logs -f"
+    echo "  rebuild   → derruba, builda e sobe containers"
+    echo "  cdu       → volta para /home/ubuntu"
+    echo ""
+    echo "📁 Scripts da VPS ficam em: /home/ubuntu/sh_scripts"
+    echo ""
+    echo "💡 COMO CRIAR UM ALIAS GLOBAL:"
+    echo "  Basta editar este arquivo:"
+    echo "      sudo nano /etc/profile.d/custom_aliases.sh"
+    echo ""
+    echo "  E adicionar uma linha no formato:"
+    echo "      alias meucomando=\"comando aqui\""
+    echo ""
+    echo "=============================================="
+    echo ""
+}
 EOF
 
-# Carrega aliases
-echo "source $ALIAS_FILE" >> ~/.zshrc
-echo "✅ Aliases criados e carregados em ~/.zshrc"
+chmod +x $ALIAS_FILE
+
+echo "source /etc/profile.d/custom_aliases.sh" >> /root/.bashrc
+echo "source /etc/profile.d/custom_aliases.sh" >> /home/ubuntu/.bashrc
+echo "source /etc/profile.d/custom_aliases.sh" >> /home/ubuntu/.zshrc
+
+echo "✅ Aliases configurados GLOBALMENTE para Bash, Zsh e Fish."
 
 # ----------------------------
-# Criar deploy.sh
+# Criar pasta para scripts .sh
 # ----------------------------
-if [ ! -f "$PROJECT_DIR/deploy.sh" ]; then
-    cat > "$PROJECT_DIR/deploy.sh" <<'EOF'
-#!/bin/bash
-CURRENT_DIR=$(pwd)
-
-if [[ ! -f "docker-compose.yml" ]]; then
-    echo "❌ docker-compose.yml não encontrado em $CURRENT_DIR."
-    echo "Certifique-se de estar na pasta correta do projeto."
-    exit 1
-fi
-
-echo "🚀 Atualizando código do Git..."
-git pull origin main
-
-echo "🛑 Parando containers existentes..."
-docker-compose down
-
-echo "📦 Rebuild e start dos containers..."
-docker-compose up -d --build
-
-echo "✅ Deploy finalizado com sucesso!"
-EOF
-    chmod +x "$PROJECT_DIR/deploy.sh"
-    echo "✅ deploy.sh criado e pronto para uso."
-else
-    echo "ℹ️ deploy.sh já existe em $PROJECT_DIR, pulando criação."
-fi
+echo "📁 Criando pasta de scripts customizados..."
+mkdir -p $SCRIPTS_DIR
+chown ubuntu:ubuntu $SCRIPTS_DIR
 
 # ----------------------------
 # Mensagem final
 # ----------------------------
+echo ""
 echo "🎉 Setup finalizado!"
-echo "Use 'project' para entrar na pasta do projeto."
-echo "Use 'helpsetup' para ver todos os aliases e comandos disponíveis."
-echo "A pasta ~/scripts está pronta para seus scripts adicionais."
+echo "📌 Seus scripts ficarão em: $SCRIPTS_DIR"
+echo "📌 Rode: helpsetup   → para ver lista de comandos"
+echo ""
+echo "✨ Tudo pronto para usar!"
