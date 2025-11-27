@@ -1,88 +1,86 @@
 #!/bin/bash
-set -euo pipefail
 
-echo "-------------------------------------------"
-echo "   Setup interativo genérico para VPS"
-echo "-------------------------------------------"
+# ----------------------------
+# Setup Genérico de VPS
+# ----------------------------
 
-# -------------------------
-# 1. Pergunta usuário VPS
-# -------------------------
-read -rp "Nome do usuário da VPS [ubuntu]: " USER_NAME
+echo "🚀 Iniciando setup genérico da VPS..."
+
+# ----------------------------
+# Perguntas iniciais
+# ----------------------------
+read -p "Nome do usuário da VPS (padrão: ubuntu): " USER_NAME
 USER_NAME=${USER_NAME:-ubuntu}
-HOME_DIR="/home/$USER_NAME"
 
-# -------------------------
-# 2. Pergunta nome do projeto
-# -------------------------
-read -rp "Nome do projeto [projeto]: " PROJECT_NAME
+read -p "Nome do projeto (padrão: projeto): " PROJECT_NAME
 PROJECT_NAME=${PROJECT_NAME:-projeto}
-PROJECT_DIR="$HOME_DIR/$PROJECT_NAME"
 
-if [ ! -d "$PROJECT_DIR" ]; then
-    mkdir -p "$PROJECT_DIR"
-    echo "Pasta do projeto criada em: $PROJECT_DIR"
-else
-    echo "Pasta do projeto já existe em: $PROJECT_DIR"
-fi
+PROJECT_DIR="$HOME/$PROJECT_NAME"
 
-# -------------------------
-# Função para instalar se faltar
-# -------------------------
-install_if_missing() {
-    PACKAGE=$1
-    if ! dpkg -s "$PACKAGE" &>/dev/null; then
-        echo "Instalando $PACKAGE..."
-        sudo apt install -y "$PACKAGE"
-    else
-        echo "$PACKAGE já instalado, pulando."
-    fi
-}
+echo "📂 Diretório do projeto definido como: $PROJECT_DIR"
 
-# -------------------------
-# 3. Atualizar sistema
-# -------------------------
-echo "Atualizando sistema..."
+# ----------------------------
+# Atualização do sistema
+# ----------------------------
+echo "🔄 Atualizando sistema..."
 sudo apt update && sudo apt upgrade -y
 
-# -------------------------
-# 4. Pacotes essenciais
-# -------------------------
-echo "Instalando pacotes essenciais..."
-for pkg in git zsh curl htop unzip; do
-    install_if_missing "$pkg"
+# ----------------------------
+# Instalação de pacotes essenciais
+# ----------------------------
+ESSENTIALS=(git zsh curl htop unzip)
+for pkg in "${ESSENTIALS[@]}"; do
+    if ! dpkg -s $pkg >/dev/null 2>&1; then
+        echo "📦 Instalando $pkg..."
+        sudo apt install -y $pkg
+    else
+        echo "✅ $pkg já instalado, pulando."
+    fi
 done
 
-# -------------------------
-# 5. Oh-My-Zsh
-# -------------------------
-if [ ! -d "$HOME_DIR/.oh-my-zsh" ]; then
-    echo "Instalando Oh-My-Zsh..."
+# ----------------------------
+# Instalação Oh-My-Zsh
+# ----------------------------
+if [ ! -d "$HOME/.oh-my-zsh" ]; then
+    echo "💎 Instalando Oh-My-Zsh..."
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 else
-    echo "Oh-My-Zsh já instalado, pulando."
+    echo "✅ Oh-My-Zsh já instalado, pulando."
 fi
 
-# -------------------------
-# 6. Docker e Compose
-# -------------------------
-if ! command -v docker &>/dev/null; then
-    echo "Instalando Docker..."
+# ----------------------------
+# Docker & Docker Compose
+# ----------------------------
+if ! command -v docker >/dev/null 2>&1; then
+    echo "🐳 Instalando Docker..."
     curl -fsSL https://get.docker.com | sudo sh
+    sudo usermod -aG docker $USER_NAME
 else
-    echo "Docker já instalado, pulando."
+    echo "✅ Docker já instalado, pulando."
 fi
 
-sudo usermod -aG docker "$USER_NAME"
-install_if_missing docker-compose-plugin
+if ! command -v docker-compose >/dev/null 2>&1; then
+    echo "🛠 Instalando Docker Compose plugin..."
+    sudo apt install docker-compose-plugin -y
+else
+    echo "✅ Docker Compose já instalado, pulando."
+fi
 
-# -------------------------
-# 7. Aliases
-# -------------------------
-echo "Configurando aliases..."
-ALIASES_FILE="$HOME_DIR/.aliases_$PROJECT_NAME"
-cat > "$ALIASES_FILE" <<EOF
-# Aliases para projeto $PROJECT_NAME
+# ----------------------------
+# Criar estrutura de pastas
+# ----------------------------
+mkdir -p "$PROJECT_DIR"
+mkdir -p "$HOME/scripts"
+chmod +x "$HOME/scripts"
+echo "📂 Estrutura de pastas criada: $PROJECT_DIR e ~/scripts"
+
+# ----------------------------
+# Criar arquivo de aliases
+# ----------------------------
+ALIAS_FILE="$HOME/.aliases_$PROJECT_NAME"
+
+cat > "$ALIAS_FILE" <<EOF
+# Aliases principais
 alias project="cd $PROJECT_DIR"
 alias logs="docker-compose logs -f"
 alias db="docker exec -it postgres psql -U postgres"
@@ -93,28 +91,54 @@ alias gc="git commit -m"
 alias dcu="docker compose up -d"
 alias dcd="docker compose down"
 alias dcl="docker compose logs -f"
-alias cdu="cd /var/www"
+alias cdu="cd /home/ubuntu"
+alias cdp="cd /var/www"
 alias rebuild="docker compose down && docker compose build && docker compose up -d"
-alias helpsetup="echo 'Comandos disponíveis: project, logs, db, ll, gs, gp, gc, dcu, dcd, dcl, cdu, rebuild'"
+
+# Deploy
+alias deploy="$PROJECT_DIR/deploy.sh -y"
+alias helpsetup="cat $ALIAS_FILE"
 EOF
 
-grep -qxF "source $ALIASES_FILE" "$HOME_DIR/.zshrc" 2>/dev/null || echo "source $ALIASES_FILE" >> "$HOME_DIR/.zshrc"
-grep -qxF "source $ALIASES_FILE" "$HOME_DIR/.bashrc" 2>/dev/null || echo "source $ALIASES_FILE" >> "$HOME_DIR/.bashrc"
+# Carrega aliases
+echo "source $ALIAS_FILE" >> ~/.zshrc
+echo "✅ Aliases criados e carregados em ~/.zshrc"
 
-# -------------------------
-# 8. Pasta scripts
-# -------------------------
-echo "Criando pasta ~/scripts..."
-mkdir -p "$HOME_DIR/scripts"
-chmod +x "$HOME_DIR/scripts"
+# ----------------------------
+# Criar deploy.sh
+# ----------------------------
+if [ ! -f "$PROJECT_DIR/deploy.sh" ]; then
+    cat > "$PROJECT_DIR/deploy.sh" <<'EOF'
+#!/bin/bash
+CURRENT_DIR=$(pwd)
 
-# -------------------------
-# Finalização
-# -------------------------
-echo "---------------------------------------------------"
-echo "Setup interativo concluído com sucesso!"
-echo "Projeto: $PROJECT_NAME"
-echo "Pasta do projeto: $PROJECT_DIR"
-echo "Reinicie o terminal ou rode 'source ~/.zshrc' para ativar aliases"
-echo "Use 'helpsetup' para listar todos os comandos disponíveis"
-echo "---------------------------------------------------"
+if [[ ! -f "docker-compose.yml" ]]; then
+    echo "❌ docker-compose.yml não encontrado em $CURRENT_DIR."
+    echo "Certifique-se de estar na pasta correta do projeto."
+    exit 1
+fi
+
+echo "🚀 Atualizando código do Git..."
+git pull origin main
+
+echo "🛑 Parando containers existentes..."
+docker-compose down
+
+echo "📦 Rebuild e start dos containers..."
+docker-compose up -d --build
+
+echo "✅ Deploy finalizado com sucesso!"
+EOF
+    chmod +x "$PROJECT_DIR/deploy.sh"
+    echo "✅ deploy.sh criado e pronto para uso."
+else
+    echo "ℹ️ deploy.sh já existe em $PROJECT_DIR, pulando criação."
+fi
+
+# ----------------------------
+# Mensagem final
+# ----------------------------
+echo "🎉 Setup finalizado!"
+echo "Use 'project' para entrar na pasta do projeto."
+echo "Use 'helpsetup' para ver todos os aliases e comandos disponíveis."
+echo "A pasta ~/scripts está pronta para seus scripts adicionais."

@@ -11,7 +11,8 @@ Este repositório contém um **script de bootstrap genérico** para configurar r
 No terminal da VPS, rode:
 
 ```bash
-curl -s https://raw.githubusercontent.com/netryxdev/bash-setup/setup.sh | bash
+curl -s https://raw.githubusercontent.com/netryxdev/bash-setup/main/setup.sh | bash
+
 
 O script é interativo e vai perguntar:
 
